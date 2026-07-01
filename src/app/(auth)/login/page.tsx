@@ -8,16 +8,19 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
+function NextHiddenInput() {
+  const searchParams = useSearchParams()
+  const next = searchParams.get('next') ?? '/dashboard'
+  return <input type="hidden" name="next" value={next} />
+}
+
 function LoginForm() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const searchParams = useSearchParams()
-  const next = searchParams.get('next') ?? '/dashboard'
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
     setError(null)
-    formData.set('next', next)
     const result = await login(formData)
     if (result?.error) {
       setError(result.error)
@@ -38,7 +41,9 @@ function LoginForm() {
 
         <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm">
           <form action={handleSubmit} className="space-y-4">
-            <input type="hidden" name="next" value={next} />
+            <Suspense fallback={<input type="hidden" name="next" value="/dashboard" />}>
+              <NextHiddenInput />
+            </Suspense>
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -125,9 +130,5 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
-  return (
-    <Suspense>
-      <LoginForm />
-    </Suspense>
-  )
+  return <LoginForm />
 }
