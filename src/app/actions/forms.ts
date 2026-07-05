@@ -4,6 +4,13 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { FormSettings } from '@/types/database'
+import {
+  createFormSchema,
+  updateFormSchema,
+  deleteFormSchema,
+  duplicateFormSchema,
+  validate,
+} from '@/lib/validations'
 
 function generateSlug(title: string): string {
   const base = title
@@ -16,13 +23,16 @@ function generateSlug(title: string): string {
 }
 
 export async function createForm(formData: FormData) {
+  const parsed = validate(createFormSchema, {
+    title: formData.get('title'),
+  })
+  if (!parsed.success) throw new Error(parsed.error)
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const title = formData.get('title') as string
-  if (!title?.trim()) throw new Error('Title is required')
-
+  const { title } = parsed.data
   const slug = generateSlug(title)
   const { data: form, error } = await supabase
     .from('forms')
@@ -43,17 +53,23 @@ export async function updateForm(
   formId: string,
   updates: { title?: string; description?: string; settings?: Partial<FormSettings>; is_published?: boolean }
 ) {
+  const parsed = validate(updateFormSchema, { formId, updates })
+  if (!parsed.success) throw new Error(parsed.error)
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const validatedUpdates = parsed.data.updates
+  const validatedFormId = parsed.data.formId
+
   // If settings is partial, merge with existing
-  let settingsToUpdate = updates.settings
+  let settingsToUpdate = validatedUpdates.settings
   if (settingsToUpdate) {
     const { data: existing } = await supabase
       .from('forms')
       .select('settings')
-      .eq('id', formId)
+      .eq('id', validatedFormId)
       .eq('user_id', user.id)
       .single()
 
@@ -65,19 +81,22 @@ export async function updateForm(
   const { error } = await supabase
     .from('forms')
     .update({
-      ...updates,
+      ...validatedUpdates,
       settings: settingsToUpdate as unknown as import('@/types/database').Json,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', formId)
+    .eq('id', validatedFormId)
     .eq('user_id', user.id)
 
   if (error) throw new Error(error.message)
-  revalidatePath(`/dashboard/${formId}`)
+  revalidatePath(`/dashboard/${validatedFormId}`)
   revalidatePath('/dashboard')
 }
 
 export async function deleteForm(formId: string) {
+  const parsed = validate(deleteFormSchema, { formId })
+  if (!parsed.success) throw new Error(parsed.error)
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -85,7 +104,7 @@ export async function deleteForm(formId: string) {
   const { error } = await supabase
     .from('forms')
     .delete()
-    .eq('id', formId)
+    .eq('id', parsed.data.formId)
     .eq('user_id', user.id)
 
   if (error) throw new Error(error.message)
@@ -94,15 +113,20 @@ export async function deleteForm(formId: string) {
 }
 
 export async function duplicateForm(formId: string) {
+  const parsed = validate(duplicateFormSchema, { formId })
+  if (!parsed.success) throw new Error(parsed.error)
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  const validatedFormId = parsed.data.formId
 
   // Fetch original form with questions
   const { data: original, error: fetchError } = await supabase
     .from('forms')
     .select('*, questions(*)')
-    .eq('id', formId)
+    .eq('id', validatedFormId)
     .eq('user_id', user.id)
     .single()
 

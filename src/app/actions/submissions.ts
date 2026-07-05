@@ -2,20 +2,34 @@
 
 import { createClient } from '@/lib/supabase/server'
 import type { Json } from '@/types/database'
+import {
+  submitFormSchema,
+  exportSubmissionsSchema,
+  validate,
+} from '@/lib/validations'
 
 export async function submitForm(
   formId: string,
   answers: Record<string, Json>,
   metadata: { userAgent?: string; referrer?: string } = {}
 ) {
+  const parsed = validate(submitFormSchema, { formId, answers, metadata })
+  if (!parsed.success) {
+    return { error: parsed.error }
+  }
+
   const supabase = await createClient()
+
+  const validatedFormId = parsed.data.formId
+  const validatedAnswers = parsed.data.answers
+  const validatedMetadata = parsed.data.metadata ?? {}
 
   // Create submission
   const { data: submission, error: subError } = await supabase
     .from('submissions')
     .insert({
-      form_id: formId,
-      metadata,
+      form_id: validatedFormId,
+      metadata: validatedMetadata,
       is_complete: false,
     })
     .select()
@@ -26,10 +40,10 @@ export async function submitForm(
   }
 
   // Insert answers
-  const answerInserts = Object.entries(answers).map(([questionId, value]) => ({
+  const answerInserts = Object.entries(validatedAnswers).map(([questionId, value]) => ({
     submission_id: submission.id,
     question_id: questionId,
-    value,
+    value: value as Json,
   }))
 
   if (answerInserts.length > 0) {
@@ -53,15 +67,23 @@ export async function submitForm(
 }
 
 export async function exportSubmissions(formId: string, format: 'csv' | 'json') {
+  const parsed = validate(exportSubmissionsSchema, { formId, format })
+  if (!parsed.success) {
+    return { error: parsed.error }
+  }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
+
+  const validatedFormId = parsed.data.formId
+  const validatedFormat = parsed.data.format
 
   // Verify form ownership
   const { data: form } = await supabase
     .from('forms')
     .select('id, title')
-    .eq('id', formId)
+    .eq('id', validatedFormId)
     .eq('user_id', user.id)
     .single()
 
@@ -85,13 +107,13 @@ export async function exportSubmissions(formId: string, format: 'csv' | 'json') 
         )
       )
     `)
-    .eq('form_id', formId)
+    .eq('form_id', validatedFormId)
     .eq('is_complete', true)
     .order('completed_at', { ascending: false })
 
   if (!submissions) return { error: 'No submissions found' }
 
-  if (format === 'json') {
+  if (validatedFormat === 'json') {
     return { data: submissions, filename: `${form.title}-responses.json` }
   }
 

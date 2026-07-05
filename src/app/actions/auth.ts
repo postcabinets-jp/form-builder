@@ -2,13 +2,25 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import {
+  loginSchema,
+  registerSchema,
+  resetPasswordSchema,
+  validate,
+} from '@/lib/validations'
 
 export async function login(formData: FormData) {
-  const supabase = await createClient()
+  const parsed = validate(loginSchema, {
+    email: formData.get('email'),
+    password: formData.get('password'),
+    next: formData.get('next'),
+  })
+  if (!parsed.success) {
+    return { error: parsed.error }
+  }
 
-  const email = formData.get('email') as string
-  const password = formData.get('password') as string
-  const next = formData.get('next') as string | null
+  const supabase = await createClient()
+  const { email, password } = parsed.data
 
   const { error } = await supabase.auth.signInWithPassword({ email, password })
 
@@ -16,21 +28,27 @@ export async function login(formData: FormData) {
     return { error: error.message }
   }
 
-  redirect(next ?? '/dashboard')
+  redirect(parsed.data.next ?? '/dashboard')
 }
 
 export async function register(formData: FormData) {
-  const supabase = await createClient()
+  const parsed = validate(registerSchema, {
+    email: formData.get('email'),
+    password: formData.get('password'),
+    full_name: formData.get('full_name'),
+  })
+  if (!parsed.success) {
+    return { error: parsed.error }
+  }
 
-  const email = formData.get('email') as string
-  const password = formData.get('password') as string
-  const fullName = formData.get('full_name') as string
+  const supabase = await createClient()
+  const { email, password, full_name } = parsed.data
 
   const { error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      data: { full_name: fullName },
+      data: { full_name },
     },
   })
 
@@ -48,10 +66,16 @@ export async function logout() {
 }
 
 export async function resetPassword(formData: FormData) {
-  const supabase = await createClient()
-  const email = formData.get('email') as string
+  const parsed = validate(resetPasswordSchema, {
+    email: formData.get('email'),
+  })
+  if (!parsed.success) {
+    return { error: parsed.error }
+  }
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+  const supabase = await createClient()
+
+  const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
     redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/update-password`,
   })
 
